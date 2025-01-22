@@ -7,28 +7,52 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const API_KEY = 'P-YQ6XKk8fjkX6dBeyHh0Yau25FC_7tHu4nItM2tzsS_0Hw_IoIEEbG3a1GM1sQ';
 
-// Enable CORS for all origins
 app.use(cors());
-
-// Enable compression for all responses
 app.use(compression());
 
-// Cache middleware
 const cache = new Map();
 const CACHE_DURATION = 3600000; // 1 hour in milliseconds
 
-// Main API endpoint
+function calculateDomainAge(createdDate) {
+  const created = new Date(createdDate);
+  const now = new Date();
+  
+  const diffTime = Math.abs(now - created);
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  
+  const years = Math.floor(diffDays / 365);
+  const remainingDays = diffDays % 365;
+  const months = Math.floor(remainingDays / 30);
+  const days = remainingDays % 30;
+
+  // Format the age string based on the conditions
+  if (years > 0) {
+    if (months > 0 && days === 0) {
+      return `${years} year${years !== 1 ? 's' : ''} ${months} month${months !== 1 ? 's' : ''}`;
+    } else if (months === 0 && days > 0) {
+      return `${years} year${years !== 1 ? 's' : ''} ${days} day${days !== 1 ? 's' : ''}`;
+    } else if (months === 0 && days === 0) {
+      return `${years} year${years !== 1 ? 's' : ''}`;
+    }
+    return `${years} year${years !== 1 ? 's' : ''} ${months} month${months !== 1 ? 's' : ''}`;
+  } else if (months > 0) {
+    if (days === 0) {
+      return `${months} month${months !== 1 ? 's' : ''}`;
+    }
+    return `${months} month${months !== 1 ? 's' : ''} ${days} day${days !== 1 ? 's' : ''}`;
+  }
+  return `${diffDays} day${diffDays !== 1 ? 's' : ''}`;
+}
+
 app.get('/agechecker-api/:domain', async (req, res) => {
   try {
     const domain = req.params.domain;
     
-    // Check if we have a valid cached response
     const cachedData = cache.get(domain);
     if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
-      return res.json(cachedData.data);
+      return res.json({ domainAge: cachedData.data });
     }
 
-    // Make request to WHOIS API
     const response = await fetch(`https://whoisjsonapi.com/v1/${domain}`, {
       headers: {
         'Authorization': `Bearer ${API_KEY}`,
@@ -41,14 +65,14 @@ app.get('/agechecker-api/:domain', async (req, res) => {
     }
 
     const data = await response.json();
+    const domainAge = calculateDomainAge(data.domain.created_date);
 
-    // Cache the response
     cache.set(domain, {
       timestamp: Date.now(),
-      data: data
+      data: domainAge
     });
 
-    res.json(data);
+    res.json({ domainAge });
   } catch (error) {
     console.error('Error:', error);
     res.status(500).json({
@@ -58,12 +82,10 @@ app.get('/agechecker-api/:domain', async (req, res) => {
   }
 });
 
-// Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'healthy' });
 });
 
-// Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({
